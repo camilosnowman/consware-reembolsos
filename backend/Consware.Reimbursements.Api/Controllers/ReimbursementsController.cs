@@ -1,5 +1,4 @@
 using Consware.Reimbursements.Api.Dtos;
-using Consware.Reimbursements.Api.Models;
 using Consware.Reimbursements.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -35,14 +34,16 @@ public class ReimbursementsController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] string? status, [FromQuery] string? employeeName)
     {
-        if (!string.IsNullOrWhiteSpace(status)
-            && !Enum.TryParse<ReimbursementStatus>(status, ignoreCase: true, out _))
+        // La validación del estado vive en el servicio: Enum.TryParse aceptaría
+        // valores numéricos como 999, que deben responder 400.
+        var result = await _service.GetAllAsync(status, employeeName);
+
+        if (!result.Success)
         {
-            return BadRequest(new { message = "El estado proporcionado no es válido." });
+            return StatusCode((int)StatusToHttp(result.ErrorCode), new { message = result.Message });
         }
 
-        var list = await _service.GetAllAsync(status, employeeName);
-        return Ok(list);
+        return Ok(result.Value);
     }
 
     [HttpGet("{id:int}")]

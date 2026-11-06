@@ -6,7 +6,8 @@ namespace Consware.Reimbursements.Api.Services;
 /// <summary>
 /// Reglas de validación de entrada de reembolsos. Se validan antes de decidir el
 /// estado o persistir, para rechazar con 400 en lugar de fallar contra SQL o
-/// redondear en silencio. Cubiertas por pruebas unitarias sin base de datos.
+/// redondear en silencio. Se ejercitan desde la suite HTTP de
+/// tests/run_api_tests.ps1 contra la API real; no hay pruebas unitarias aparte.
 /// </summary>
 internal static class ReimbursementValidation
 {

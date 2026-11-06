@@ -14,11 +14,18 @@ function Invoke-Api {
     param(
         [Parameter(Mandatory)] [string]$Method,
         [Parameter(Mandatory)] [string]$Uri,
-        [object]$Body
+        [object]$Body,
+        [string]$RawBody
     )
 
     $params = @{ Uri = $Uri; Method = $Method; UseBasicParsing = $true; ErrorAction = 'Stop' }
-    if ($null -ne $Body) {
+    if ($PSBoundParameters.ContainsKey('RawBody')) {
+        # Cuerpo JSON literal: evita que PowerShell redondee montos extremos
+        # como decimal(18,2) antes de enviarlos.
+        $params.ContentType = 'application/json'
+        $params.Body = $RawBody
+    }
+    elseif ($null -ne $Body) {
         $params.ContentType = 'application/json'
         $params.Body = ($Body | ConvertTo-Json -Compress)
     }
@@ -33,9 +40,14 @@ function Invoke-Api {
 
         $content = ''
         try {
-            $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
-            $content = $reader.ReadToEnd()
-            $reader.Dispose()
+            if ($response -is [System.Net.Http.HttpResponseMessage]) {
+                $content = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            }
+            else {
+                $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+                $content = $reader.ReadToEnd()
+                $reader.Dispose()
+            }
         }
         catch { }
         return [pscustomobject]@{ StatusCode = [int]$response.StatusCode; Content = $content }
@@ -46,6 +58,20 @@ function Convert-ApiJson {
     param([string]$Content)
     if ([string]::IsNullOrWhiteSpace($Content)) { return $null }
     return $Content | ConvertFrom-Json
+}
+
+function New-CreateBody {
+    param(
+        [Parameter(Mandatory)] [string]$EmployeeName,
+        [Parameter(Mandatory)] [string]$AmountLiteral,
+        [string]$Category = 'Transporte',
+        [string]$Description = 'Prueba de limite'
+    )
+
+    return '{"employeeName":' + (ConvertTo-Json $EmployeeName -Compress) +
+        ',"amount":' + $AmountLiteral +
+        ',"category":' + (ConvertTo-Json $Category -Compress) +
+        ',"description":' + (ConvertTo-Json $Description -Compress) + '}'
 }
 
 function Test-Case {
@@ -92,18 +118,42 @@ function Assert-Status {
     return @($false, "estado recibido '$($item.status)', esperado '$ExpectedStatus'")
 }
 
-# Un Ãºnico prechequeo: no se ejecutan los casos si la API no estÃ¡ escuchando.
+function Assert-Fields {
+    param($Response, [hashtable]$Expected)
+    $item = Convert-ApiJson $Response.Content
+    if ($null -eq $item) { return @($false, 'respuesta sin cuerpo JSON') }
+
+    $problems = @()
+    foreach ($key in $Expected.Keys) {
+        if ($item.$key -ne $Expected[$key]) {
+            $problems += "$key='$($item.$key)' (esperado '$($Expected[$key])')"
+        }
+    }
+
+    if ($problems.Count -eq 0) { return @($true, 'campos verificados') }
+    return @($false, ($problems -join '; '))
+}
+
+# Un unico prechequeo: si la API no responde 200 no se ejecuta la matriz.
 try {
-    Invoke-Api -Method Get -Uri $api | Out-Null
+    $precheck = Invoke-Api -Method Get -Uri $api
 }
 catch {
-    Write-Host "API no disponible en $base. No se ejecutÃ³ la matriz de pruebas." -ForegroundColor Yellow
+    Write-Host "API no disponible en $base. No se ejecuto la matriz de pruebas." -ForegroundColor Yellow
     exit 1
 }
 
-$demoEmployee = 'Empleado Demo'
+if ($precheck.StatusCode -ne 200) {
+    Write-Host "API respondio $($precheck.StatusCode) en $base; se esperaba 200. No se ejecuto la matriz de pruebas." -ForegroundColor Yellow
+    exit 1
+}
+
+# Identificadores unicos por ejecucion: los filtros no dependen de datos previos.
+$demoEmployee = "Demo API $runId"
 $pendingEmployee = "Pendiente API $runId"
 $rejectEmployee = "Rechazo API $runId"
+$invalidRejectEmployee = "Motivo API $runId"
+$longReasonEmployee = "Longitud API $runId"
 
 $t01 = Test-Case 'T01' 201 { Invoke-Api Post $api @{ employeeName = $demoEmployee; amount = 100000; category = 'Transporte'; description = 'Viaje de prueba T01' } } { param($r) Assert-Status $r 'Approved' }
 $approvedId = (Convert-ApiJson $t01.Content).id
@@ -124,12 +174,11 @@ Test-Case 'T09' 200 { Invoke-Api Get ($api + '?status=Pending') } {
     return @($ok, 'solo registros Pending')
 } | Out-Null
 Test-Case 'T10' 200 { Invoke-Api Get ($api + '?employeeName=' + [uri]::EscapeDataString($demoEmployee)) } {
-param($r)
-[System.IO.File]::WriteAllText("$env:TEMP\opencode\t10_debug.json", $r.Content)
-$items = @(Convert-ApiJson $r.Content)
-$mis = @($items | Where-Object { $_.employeeName -ne $demoEmployee }).Count
-$ok = ($items.Count -gt 0) -and ($mis -eq 0)
-return @($ok, "solo $demoEmployee (items=$($items.Count) mismatches=$mis)")
+    param($r)
+    $items = @(Convert-ApiJson $r.Content)
+    $mis = @($items | Where-Object { $_.employeeName -ne $demoEmployee }).Count
+    $ok = ($items.Count -gt 0) -and ($mis -eq 0)
+    return @($ok, "solo $demoEmployee (items=$($items.Count) mismatches=$mis)")
 } | Out-Null
 Test-Case 'T11' 200 { Invoke-Api Get ($api + '?status=Pending&employeeName=' + [uri]::EscapeDataString($pendingEmployee)) } {
     param($r)
@@ -139,21 +188,78 @@ Test-Case 'T11' 200 { Invoke-Api Get ($api + '?status=Pending&employeeName=' + [
 } | Out-Null
 
 Test-Case 'T12' 200 { Invoke-Api Patch "$api/$pendingId/approve" } { param($r) Assert-Status $r 'Approved' } | Out-Null
-$t13 = Test-Case 'T13' 200 {
-    $newPending = Invoke-Api Post $api @{ employeeName = $rejectEmployee; amount = 500001; category = 'Hospedaje'; description = 'Solicitud para rechazo T13' }
-    $rejectId = (Convert-ApiJson $newPending.Content).id
-    Invoke-Api Patch "$api/$rejectId/reject" @{ reason = 'Soporte insuficiente' }
-} { param($r) Assert-Status $r 'Rejected' }
-$rejectedId = $null
-if ($null -ne $t13) { $rejectedId = (Convert-ApiJson $t13.Content).id }
 
-# Se crea una nueva pendiente para validar el motivo vacÃ­o sin depender de estados previos.
-$invalidReject = Invoke-Api Post $api @{ employeeName = "Motivo API $runId"; amount = 500001; category = 'Hospedaje'; description = 'Pendiente para T14' }
+# Se crea la solicitud a rechazar con un nombre unico, sin depender de T12.
+$rejectSeed = Invoke-Api Post $api @{ employeeName = $rejectEmployee; amount = 500001; category = 'Hospedaje'; description = 'Solicitud para rechazo T13' }
+$rejectedId = (Convert-ApiJson $rejectSeed.Content).id
+Test-Case 'T13' 200 { Invoke-Api Patch "$api/$rejectedId/reject" @{ reason = 'Soporte insuficiente' } } {
+    param($r)
+    Assert-Fields $r @{ status = 'Rejected'; rejectionReason = 'Soporte insuficiente' }
+} | Out-Null
+
+# Motivo vacio sobre una pendiente propia: 400 y la solicitud sigue Pending.
+$invalidReject = Invoke-Api Post $api @{ employeeName = $invalidRejectEmployee; amount = 500001; category = 'Hospedaje'; description = 'Pendiente para T14' }
 $invalidRejectId = (Convert-ApiJson $invalidReject.Content).id
-Test-Case 'T14' 400 { Invoke-Api Patch "$api/$invalidRejectId/reject" @{ reason = ' ' } } | Out-Null
+Test-Case 'T14' 400 { Invoke-Api Patch "$api/$invalidRejectId/reject" @{ reason = ' ' } } {
+    param($r)
+    $after = Invoke-Api Get "$api/$invalidRejectId"
+    Assert-Fields $after @{ status = 'Pending'; rejectionReason = $null }
+} | Out-Null
 
-Test-Case 'T15' 409 { Invoke-Api Patch "$api/$approvedId/approve" } | Out-Null
-Test-Case 'T16' 409 { Invoke-Api Patch "$api/$rejectedId/reject" @{ reason = 'Segundo intento' } } | Out-Null
+# Inmutabilidad: tras el 409 el estado y la fecha de decision no cambian.
+$approvedBefore = Convert-ApiJson (Invoke-Api Get "$api/$approvedId").Content
+Test-Case 'T15' 409 { Invoke-Api Patch "$api/$approvedId/approve" } {
+    param($r)
+    $after = Convert-ApiJson (Invoke-Api Get "$api/$approvedId").Content
+    $ok = $after.status -eq 'Approved' -and $after.decidedAtUtc -eq $approvedBefore.decidedAtUtc
+    return @($ok, "estado $($after.status), decidedAtUtc sin cambios")
+} | Out-Null
+
+$rejectedBefore = Convert-ApiJson (Invoke-Api Get "$api/$rejectedId").Content
+Test-Case 'T16' 409 { Invoke-Api Patch "$api/$rejectedId/reject" @{ reason = 'Segundo intento' } } {
+    param($r)
+    $after = Convert-ApiJson (Invoke-Api Get "$api/$rejectedId").Content
+    $ok = $after.status -eq 'Rejected' -and
+        $after.rejectionReason -eq 'Soporte insuficiente' -and
+        $after.decidedAtUtc -eq $rejectedBefore.decidedAtUtc
+    return @($ok, "estado $($after.status), motivo y decidedAtUtc sin cambios")
+} | Out-Null
+
+# R01-R05: precision, tope de autoaprobacion y rango de decimal(18,2).
+# Los montos extremos se envian como literal JSON para no perder precision.
+Test-Case 'R01' 400 { Invoke-Api Post $api -RawBody (New-CreateBody "Precision API $runId" '0.001' 'Transporte' 'Tres decimales') } | Out-Null
+Test-Case 'R02' 400 { Invoke-Api Post $api -RawBody (New-CreateBody "Precision API $runId" '500000.001' 'Transporte' 'Tope con tres decimales') } | Out-Null
+Test-Case 'R03' 201 { Invoke-Api Post $api -RawBody (New-CreateBody "Rango API $runId" '500000.01' 'Transporte' 'Justo sobre el tope') } { param($r) Assert-Status $r 'Pending' } | Out-Null
+Test-Case 'R04' 201 { Invoke-Api Post $api -RawBody (New-CreateBody "Rango API $runId" '9999999999999999.99' 'Transporte' 'Maximo de decimal(18,2)') } { param($r) Assert-Status $r 'Pending' } | Out-Null
+Test-Case 'R05' 400 { Invoke-Api Post $api -RawBody (New-CreateBody "Rango API $runId" '10000000000000000.00' 'Transporte' 'Sobre el rango de decimal(18,2)') } | Out-Null
+
+# R06-R09: los cuatro limites de longitud (100/60/500/500 tras Trim).
+$longName = 'x' * 101
+$longCategory = 'x' * 61
+$longDescription = 'x' * 501
+$longReason = 'x' * 501
+Test-Case 'R06' 400 { Invoke-Api Post $api @{ employeeName = $longName; amount = 1; category = 'Transporte'; description = 'Nombre de 101 caracteres' } } | Out-Null
+Test-Case 'R07' 400 { Invoke-Api Post $api @{ employeeName = "Longitud API $runId"; amount = 1; category = $longCategory; description = 'Categoria de 61 caracteres' } } | Out-Null
+Test-Case 'R08' 400 { Invoke-Api Post $api @{ employeeName = "Longitud API $runId"; amount = 1; category = 'Transporte'; description = $longDescription } } | Out-Null
+$longReasonSeed = Invoke-Api Post $api @{ employeeName = $longReasonEmployee; amount = 500001; category = 'Hospedaje'; description = 'Pendiente para R09' }
+$longReasonId = (Convert-ApiJson $longReasonSeed.Content).id
+Test-Case 'R09' 400 { Invoke-Api Patch "$api/$longReasonId/reject" @{ reason = $longReason } } {
+    param($r)
+    $after = Invoke-Api Get "$api/$longReasonId"
+    Assert-Fields $after @{ status = 'Pending'; rejectionReason = $null }
+} | Out-Null
+
+# R10-R11: estados no definidos (numerico y texto) se rechazan con 400.
+Test-Case 'R10' 400 { Invoke-Api Get ($api + '?status=999') } | Out-Null
+Test-Case 'R11' 400 { Invoke-Api Get ($api + '?status=NoExiste') } | Out-Null
+
+# R12: las fechas se serializan en UTC con sufijo Z sin migracion.
+Test-Case 'R12' 200 { Invoke-Api Get "$api/$approvedId" } {
+    param($r)
+    $createdOk = $r.Content -match '"createdAtUtc":"[^"]*Z"'
+    $decidedOk = $r.Content -match '"decidedAtUtc":"[^"]*Z"'
+    return @(($createdOk -and $decidedOk), 'createdAtUtc y decidedAtUtc con sufijo Z')
+} | Out-Null
 
 $total = $passed + $failed
 Write-Host "Resumen: $passed PASS, $failed FAIL, $total total"
