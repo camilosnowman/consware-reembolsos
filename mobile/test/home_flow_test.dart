@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +8,34 @@ import 'package:http/testing.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:consware_reimbursements/main.dart';
 import 'package:consware_reimbursements/services/reimbursement_api_service.dart';
+
+/// Item típico de /api/reimbursements (JSON camelCase de la API).
+Map<String, dynamic> _item({
+  int id = 1,
+  String status = 'Pending',
+  String? rejectionReason,
+  String category = 'Transporte',
+  String description = 'Taxi aeropuerto',
+}) =>
+    {
+      'id': id,
+      'employeeName': 'Empleado Demo',
+      'amount': 650000,
+      'category': category,
+      'description': description,
+      'status': status,
+      'rejectionReason': rejectionReason,
+      'createdAtUtc': '2026-11-01T10:00:00Z',
+      'decidedAtUtc': status == 'Pending' ? null : '2026-11-01T11:00:00Z',
+    };
+
+http.Response _ok(List<Map<String, dynamic>> items) => http.Response(
+      jsonEncode(items),
+      200,
+      // El backend real responde con charset utf-8; sin este header,
+      // http.Response codificaría el body como latin1.
+      headers: {'content-type': 'application/json; charset=utf-8'},
+    );
 
 void main() {
   setUpAll(() async {
@@ -130,6 +159,115 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Pendiente'), findsNothing);
+    expect(find.text('Aprobada'), findsOneWidget);
+  });
+
+  testWidgets(
+      'HomeShell real muestra etiquetas Aprobada/Rechazada y el motivo del rechazo',
+      (WidgetTester tester) async {
+    final apiService = ReimbursementApiService(
+      client: MockClient((request) async => _ok([
+            _item(
+              id: 1,
+              status: 'Approved',
+              category: 'Transporte',
+              description: 'Taxi aeropuerto',
+            ),
+            _item(
+              id: 2,
+              status: 'Rejected',
+              rejectionReason: 'Fuera de política',
+              category: 'Alimentación',
+              description: 'Cena cliente',
+            ),
+          ])),
+    );
+
+    await pumpApp(tester, apiService);
+    await tester.tap(find.text('Mis solicitudes'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Aprobada'), findsOneWidget);
+    expect(find.text('Rechazada'), findsOneWidget);
+    expect(
+      find.textContaining('Motivo del rechazo: Fuera de política'),
+      findsOneWidget,
+    );
+    // La solicitud aprobada no muestra caja de motivo.
+    expect(find.textContaining('Motivo del rechazo'), findsOneWidget);
+  });
+
+  testWidgets(
+      'lista inicialmente vacía: tirar para refrescar trae la primera solicitud',
+      (WidgetTester tester) async {
+    final items = <Map<String, dynamic>>[];
+    final apiService = ReimbursementApiService(
+      client: MockClient((request) async => _ok(items)),
+    );
+
+    await pumpApp(tester, apiService);
+    await tester.tap(find.text('Mis solicitudes'));
+    await tester.pumpAndSettle();
+    expect(find.text('Aún no tienes solicitudes'), findsOneWidget);
+
+    // El gestor registra una solicitud desde otro cliente.
+    items.add(_item(status: 'Approved'));
+    await tester.drag(find.byType(ListView), const Offset(0, 700));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Aún no tienes solicitudes'), findsNothing);
+    expect(find.text('Taxi aeropuerto'), findsOneWidget);
+    expect(find.text('Aprobada'), findsOneWidget);
+  });
+
+  testWidgets(
+      'lista corta: tirar para refrescar actualiza la decisión del gestor',
+      (WidgetTester tester) async {
+    final items = <Map<String, dynamic>>[_item(status: 'Pending')];
+    final apiService = ReimbursementApiService(
+      client: MockClient((request) async => _ok(items)),
+    );
+
+    await pumpApp(tester, apiService);
+    await tester.tap(find.text('Mis solicitudes'));
+    await tester.pumpAndSettle();
+    expect(find.text('Pendiente'), findsOneWidget);
+
+    items[0] = _item(status: 'Rejected', rejectionReason: 'Sin soporte');
+    await tester.drag(find.byType(ListView), const Offset(0, 700));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pendiente'), findsNothing);
+    expect(find.text('Rechazada'), findsOneWidget);
+    expect(
+      find.textContaining('Motivo del rechazo: Sin soporte'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'HomeShell real: error de red muestra REINTENTAR y al reintentar recupera',
+      (WidgetTester tester) async {
+    var offline = true;
+    final apiService = ReimbursementApiService(
+      client: MockClient((request) async {
+        if (offline) throw const SocketException('sin conexión');
+        return _ok([_item(status: 'Approved')]);
+      }),
+    );
+
+    await pumpApp(tester, apiService);
+    await tester.tap(find.text('Mis solicitudes'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No se pudo conectar con el servidor'), findsOneWidget);
+    expect(find.text('REINTENTAR'), findsOneWidget);
+
+    offline = false;
+    await tester.tap(find.text('REINTENTAR'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No se pudo conectar con el servidor'), findsNothing);
     expect(find.text('Aprobada'), findsOneWidget);
   });
 }
