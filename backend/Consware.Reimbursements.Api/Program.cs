@@ -19,7 +19,7 @@ builder.Services.AddScoped<IReimbursementService, ReimbursementService>();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AngularLocal", policy =>
-        policy.WithOrigins("http://localhost:4200")
+        policy.WithOrigins("http://localhost:4200", "http://localhost:4201", "http://localhost:4202")
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
