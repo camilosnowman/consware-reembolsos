@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$BaseUrl = 'http://localhost:5000'
 )
@@ -92,12 +92,12 @@ function Assert-Status {
     return @($false, "estado recibido '$($item.status)', esperado '$ExpectedStatus'")
 }
 
-# Un único prechequeo: no se ejecutan los casos si la API no está escuchando.
+# Un Ãºnico prechequeo: no se ejecutan los casos si la API no estÃ¡ escuchando.
 try {
     Invoke-Api -Method Get -Uri $api | Out-Null
 }
 catch {
-    Write-Host "API no disponible en $base. No se ejecutó la matriz de pruebas." -ForegroundColor Yellow
+    Write-Host "API no disponible en $base. No se ejecutÃ³ la matriz de pruebas." -ForegroundColor Yellow
     exit 1
 }
 
@@ -117,18 +117,18 @@ Test-Case 'T06' 400 { Invoke-Api Post $api @{ employeeName = "Invalido API $runI
 Test-Case 'T07' 400 { Invoke-Api Post $api @{ employeeName = "Invalido API $runId"; amount = 1; category = ''; description = 'Categoria vacia' } } | Out-Null
 Test-Case 'T08' 404 { Invoke-Api Get "$api/999999" } | Out-Null
 
-Test-Case 'T09' 200 { Invoke-Api Get "$api?status=Pending" } {
+Test-Case 'T09' 200 { Invoke-Api Get ($api + '?status=Pending') } {
     param($r)
     $items = @(Convert-ApiJson $r.Content)
     $ok = $items.Count -gt 0 -and @($items | Where-Object { $_.status -ne 'Pending' }).Count -eq 0
     return @($ok, 'solo registros Pending')
 } | Out-Null
-Test-Case 'T10' 200 { Invoke-Api Get "$api?employeeName=$([uri]::EscapeDataString($demoEmployee))" } {
+Test-Case 'T10' 200 { Invoke-Api Get ($api + '?employeeName=' + [uri]::EscapeDataString($demoEmployee)) } {
     param($r)
     $items = @(Convert-ApiJson $r.Content)
     return @($items.Count -gt 0 -and @($items | Where-Object { $_.employeeName -ne $demoEmployee }).Count -eq 0, "solo $demoEmployee")
 } | Out-Null
-Test-Case 'T11' 200 { Invoke-Api Get "$api?status=Pending&employeeName=$([uri]::EscapeDataString($pendingEmployee))" } {
+Test-Case 'T11' 200 { Invoke-Api Get ($api + '?status=Pending&employeeName=' + [uri]::EscapeDataString($pendingEmployee)) } {
     param($r)
     $items = @(Convert-ApiJson $r.Content)
     $ok = $items.Count -gt 0 -and @($items | Where-Object { $_.status -ne 'Pending' -or $_.employeeName -ne $pendingEmployee }).Count -eq 0
@@ -144,7 +144,7 @@ $t13 = Test-Case 'T13' 200 {
 $rejectedId = $null
 if ($null -ne $t13) { $rejectedId = (Convert-ApiJson $t13.Content).id }
 
-# Se crea una nueva pendiente para validar el motivo vacío sin depender de estados previos.
+# Se crea una nueva pendiente para validar el motivo vacÃ­o sin depender de estados previos.
 $invalidReject = Invoke-Api Post $api @{ employeeName = "Motivo API $runId"; amount = 500001; category = 'Hospedaje'; description = 'Pendiente para T14' }
 $invalidRejectId = (Convert-ApiJson $invalidReject.Content).id
 Test-Case 'T14' 400 { Invoke-Api Patch "$api/$invalidRejectId/reject" @{ reason = ' ' } } | Out-Null
