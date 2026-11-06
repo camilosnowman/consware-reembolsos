@@ -31,6 +31,8 @@ Actualice la cadena de conexión `DefaultConnection` en `backend/Consware.Reimbu
 
 Use el nombre de servidor, credenciales y opciones de seguridad apropiados para su entorno.
 
+Si su SQL Server usa usuario/contrase­na (por ejemplo SQL Server en Docker), hay una plantilla en ackend/Consware.Reimbursements.Api/appsettings.Development.example.json: copie el archivo como ppsettings.Development.json y escriba ahí su contraseña (ese archivo no se versiona, está en .gitignore).
+
 ## 5. Ejecutar el backend
 
 Desde `backend/Consware.Reimbursements.Api` ejecute:
