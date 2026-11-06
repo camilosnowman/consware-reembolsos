@@ -1,11 +1,14 @@
 /// Configuración de la API.
-class ApiConfig {
-  /// 10.0.2.2 es la IP especial del emulador de Android que apunta al
-  /// localhost (127.0.0.1) de la máquina donde corre el backend.
-  static const String baseUrl = 'http://10.0.2.2:5000/api/reimbursements';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
-  // NOTA: en un dispositivo físico real, reemplazar por la IP LAN del PC,
-  // por ejemplo: 'http://192.168.1.50:5000/api/reimbursements'
+class ApiConfig {
+  /// Emulador Android: 10.0.2.2 apunta al host (localhost del PC).
+  /// Web (Chrome) para pruebas locales: localhost directo.
+  /// Dispositivo físico real: reemplazar por la IP LAN del PC.
+  static String get baseUrl {
+    if (kIsWeb) return 'http://localhost:5000/api/reimbursements';
+    return 'http://10.0.2.2:5000/api/reimbursements';
+  }
 
   /// Timeout general para todas las peticiones HTTP.
   static const Duration timeout = Duration(seconds: 10);

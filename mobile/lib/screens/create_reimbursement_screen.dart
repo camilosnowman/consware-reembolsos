@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 import '../services/reimbursement_api_service.dart';
 
@@ -37,6 +39,25 @@ class _CreateReimbursementScreenState extends State<CreateReimbursementScreen> {
     'Otros',
   ];
 
+  /// Formato es-CO para separadores de miles (p. ej. 650.000).
+  static final NumberFormat _thousands = NumberFormat.decimalPattern('es_CO');
+
+  /// Formatea el monto con separador de miles en vivo (650000 → 650.000).
+  void _onAmountChanged(String value) {
+    if (value.isEmpty) return;
+    final digitsOnly = value.replaceAll(RegExp(r'[^\d]'), '');
+    final parsed = int.tryParse(digitsOnly);
+    if (parsed == null) return;
+    final cursor = _amountController.selection.baseOffset;
+    final atEnd = cursor < 0 || cursor >= value.length;
+    final formatted = _thousands.format(parsed);
+    if (formatted == value) return;
+    _amountController
+      ..text = formatted
+      ..selection = TextSelection.collapsed(
+          offset: atEnd ? formatted.length : cursor.clamp(0, formatted.length));
+  }
+
   @override
   void dispose() {
     _amountController.dispose();
@@ -52,8 +73,8 @@ class _CreateReimbursementScreenState extends State<CreateReimbursementScreen> {
     try {
       await widget.apiService.createReimbursement(
         employeeName: widget.employeeName,
-        amount: num.tryParse(
-                _amountController.text.replaceAll(',', '.').trim()) ??
+        amount: int.tryParse(
+                _amountController.text.replaceAll(RegExp(r'[^\d]'), '')) ??
             0,
         category: _category,
         description: _descriptionController.text.trim(),
@@ -102,16 +123,20 @@ class _CreateReimbursementScreenState extends State<CreateReimbursementScreen> {
               controller: _amountController,
               decoration: const InputDecoration(
                 labelText: 'Monto',
-                hintText: 'Ej: 650000',
+                hintText: 'Ej: 650.000',
                 prefixText: '\$ ',
                 border: OutlineInputBorder(),
               ),
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+              ],
+              onChanged: _onAmountChanged,
               enabled: !_submitting,
               validator: (value) {
-                final parsed =
-                    num.tryParse(value?.replaceAll(',', '.') ?? '');
+                final parsed = int.tryParse(
+                    value?.replaceAll(RegExp(r'[^\d]'), '') ?? '');
                 if (parsed == null || parsed <= 0) {
                   return 'Ingresa un monto mayor a 0';
                 }
