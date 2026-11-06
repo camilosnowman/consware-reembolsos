@@ -1,10 +1,28 @@
 import { Component, inject, signal } from '@angular/core';
 import { CurrencyPipe, DatePipe } from '@angular/common';
-import { ReactiveFormsModule, NonNullableFormBuilder, Validators } from '@angular/forms';
+import {
+  AbstractControl,
+  NonNullableFormBuilder,
+  ReactiveFormsModule,
+  ValidationErrors,
+  Validators,
+} from '@angular/forms';
 import { ReimbursementService } from '../../services/reimbursement.service';
 import { Reimbursement, ReimbursementStatus } from '../../models/reimbursement.model';
 
 type FilterKey = 'Pending' | 'Approved' | 'Rejected' | 'All';
+
+/** Longitud máxima del motivo, coherente con el límite de la API (nvarchar(500)). */
+const REASON_MAX_LENGTH = 500;
+
+/**
+ * Valida el motivo sobre su valor recortado (trim), alineado con la regla de la API:
+ * el motivo es obligatorio y no puede estar vacío ni contener solo espacios.
+ */
+function requiredTrimmedReason(control: AbstractControl): ValidationErrors | null {
+  const value = (control.value ?? '') as string;
+  return value.trim().length === 0 ? { reasonRequired: true } : null;
+}
 
 @Component({
   selector: 'app-approvals',
@@ -26,8 +44,10 @@ export class ApprovalsComponent {
 
   readonly filter = signal<FilterKey>('Pending');
 
+  readonly reasonMaxLength = REASON_MAX_LENGTH;
+
   readonly rejectForm = this.fb.group({
-    reason: this.fb.control('', [Validators.required, Validators.minLength(3)]),
+    reason: this.fb.control('', [requiredTrimmedReason, Validators.maxLength(REASON_MAX_LENGTH)]),
   });
 
   get reasonCtrl() {
@@ -85,10 +105,18 @@ export class ApprovalsComponent {
 
   confirmReject(): void {
     const target = this.rejectTarget();
-    if (!target || this.rejectForm.invalid) return;
+    const reason = this.reasonCtrl.value.trim();
+    if (
+      !target ||
+      this.rejectForm.invalid ||
+      reason.length === 0 ||
+      reason.length > REASON_MAX_LENGTH
+    ) {
+      return;
+    }
     this.rejecting.set(true);
     this.rejectServerError.set(null);
-    this.api.reject(target.id, this.rejectForm.controls.reason.value.trim()).subscribe({
+    this.api.reject(target.id, reason).subscribe({
       next: () => {
         this.rejecting.set(false);
         this.rejectTarget.set(null);

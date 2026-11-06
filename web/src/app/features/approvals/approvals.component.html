@@ -86,10 +86,14 @@
           id="reason"
           formControlName="reason"
           rows="4"
+          [maxlength]="reasonMaxLength"
           placeholder="Explique el motivo del rechazo…"
         ></textarea>
-        @if (reasonCtrl.invalid && (reasonCtrl.dirty || reasonCtrl.touched)) {
-          <div class="field-error">El motivo es obligatorio (mínimo 3 caracteres).</div>
+        @if (reasonCtrl.hasError('reasonRequired') && (reasonCtrl.dirty || reasonCtrl.touched)) {
+          <div class="field-error">El motivo es obligatorio: no puede estar vacío ni contener solo espacios.</div>
+        }
+        @if (reasonCtrl.hasError('maxlength')) {
+          <div class="field-error">El motivo no puede superar los {{ reasonMaxLength }} caracteres.</div>
         }
         @if (rejectServerError()) {
           <div class="field-error server">{{ rejectServerError() }}</div>
