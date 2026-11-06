@@ -17,7 +17,7 @@ El proyecto se organiza en tres clientes/servicios: API en `backend/`, aplicaci�
 
 - .NET SDK 8.
 - SQL Server disponible localmente o en red, con permisos para crear/actualizar la base de datos.
-- Herramienta de EF Core: `dotnet tool install --global dotnet-ef` (si aún no está instalada).
+- Herramienta de EF Core: `dotnet tool install --global dotnet-ef --version 8.0.11` (si aún no está instalada; alinee la versión con los paquetes EF 8.x del proyecto).
 - Flutter SDK y un emulador Android o dispositivo físico, para el cliente móvil.
 - Node.js y npm, para el cliente web.
 
@@ -31,7 +31,7 @@ Actualice la cadena de conexión `DefaultConnection` en `backend/Consware.Reimbu
 
 Use el nombre de servidor, credenciales y opciones de seguridad apropiados para su entorno.
 
-Si su SQL Server usa usuario/contrase­na (por ejemplo SQL Server en Docker), hay una plantilla en ackend/Consware.Reimbursements.Api/appsettings.Development.example.json: copie el archivo como ppsettings.Development.json y escriba ahí su contraseña (ese archivo no se versiona, está en .gitignore).
+Si su SQL Server usa usuario/contraseña (por ejemplo SQL Server en Docker), hay una plantilla en `backend/Consware.Reimbursements.Api/appsettings.Development.example.json`: copie ese archivo como `appsettings.Development.json` y escriba ahí su contraseña (ese archivo no se versiona, está en .gitignore).
 
 ## 5. Ejecutar el backend
 
@@ -43,11 +43,11 @@ dotnet ef database update
 dotnet run --urls http://0.0.0.0:5000
 ```
 
-La API quedará disponible en `http://localhost:5000`; en ambiente de desarrollo también expone Swagger. La política CORS actual autoriza el frontend en `http://localhost:4200`.
+La API quedará disponible en `http://localhost:5000`; en ambiente de desarrollo también expone Swagger. CORS autoriza los orígenes locales de los frontends: Angular `http://localhost:4200` y, para pruebas de Flutter web, `4201`/`4202`.
 
 ## 6. Ejecutar Flutter
 
-Cuando el cliente móvil esté disponible, desde `mobile/` ejecute:
+Desde `mobile/` (cliente móvil del empleado) ejecute:
 
 ```bash
 flutter pub get

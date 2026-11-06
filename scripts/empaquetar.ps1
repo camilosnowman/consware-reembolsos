@@ -11,7 +11,7 @@ $stagingRepository = Join-Path $temporaryRoot 'consware-reembolsos'
 try {
     New-Item -ItemType Directory -Path $stagingRepository -Force | Out-Null
 
-    & robocopy $repoRoot $stagingRepository /E /R:1 /W:1 /XD bin obj node_modules .dart_tool build .angular dist .git /XF consware-reembolsos.zip /NFL /NDL /NJH /NJS /NP
+    & robocopy $repoRoot $stagingRepository /E /R:1 /W:1 /XD bin obj node_modules .dart_tool build .angular dist .git /XF consware-reembolsos.zip appsettings.Development.json appsettings.Production.json *.secret* /NFL /NDL /NJH /NJS /NP
     $robocopyExitCode = $LASTEXITCODE
     if ($robocopyExitCode -gt 7) {
         throw "robocopy falló al preparar el paquete (código $robocopyExitCode)."
