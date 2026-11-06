@@ -1,0 +1,112 @@
+<div class="page">
+  <header class="header">
+    <h1>Panel de Aprobaciones</h1>
+    <p class="subtitle">Solicitudes de reembolso</p>
+  </header>
+
+  <div class="toolbar">
+    <label class="filter-label" for="filter">Filtrar:</label>
+    <select id="filter" class="filter-select" [value]="filter()" (change)="setFilter($any($event.target).value)">
+      <option value="Pending">Pendientes</option>
+      <option value="Approved">Aprobadas</option>
+      <option value="Rejected">Rechazadas</option>
+      <option value="All">Todas</option>
+    </select>
+  </div>
+
+  @if (loadError()) {
+    <div class="error-banner">
+      <span>No se pudo conectar con el servidor.</span>
+      <button class="btn btn-secondary" (click)="load()">Reintentar</button>
+    </div>
+  } @else if (loading()) {
+    <div class="loading">Cargando solicitudes…</div>
+  } @else {
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Empleado</th>
+            <th>Categoría</th>
+            <th>Descripción</th>
+            <th class="num">Monto</th>
+            <th>Fecha</th>
+            <th>Estado</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (item of items(); track item.id) {
+            <tr>
+              <td>{{ item.employeeName }}</td>
+              <td>{{ item.category }}</td>
+              <td class="desc">{{ item.description }}</td>
+              <td class="num">{{ item.amount | currency: 'COP' : 'symbol' : '1.0-0' : 'es-CO' }}</td>
+              <td>{{ (item.decidedAtUtc ?? item.createdAtUtc) | date: 'dd/MM/yyyy HH:mm' }}</td>
+              <td>
+                <span class="badge" [class]="'badge ' + item.status.toLowerCase()">
+                  {{
+                    item.status === 'Pending' ? 'Pendiente'
+                    : item.status === 'Approved' ? 'Aprobada'
+                    : 'Rechazada'
+                  }}
+                </span>
+                @if (item.status === 'Rejected' && item.rejectionReason) {
+                  <div class="reject-reason">Motivo: {{ item.rejectionReason }}</div>
+                }
+              </td>
+              <td class="actions">
+                @if (item.status === 'Pending') {
+                  <button class="btn btn-approve" (click)="approve(item)">Aprobar</button>
+                  <button class="btn btn-reject" (click)="openReject(item)">Rechazar</button>
+                } @else {
+                  <span class="muted">—</span>
+                }
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="7" class="empty">No hay solicitudes para mostrar.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>
+
+@if (rejectTarget(); as target) {
+  <div class="modal-backdrop" (click)="closeReject()">
+    <div class="modal" (click)="$event.stopPropagation()">
+      <h2>Rechazar solicitud</h2>
+      <p>Solicitud de {{ target.employeeName }} por {{ target.amount | currency: 'COP' : 'symbol' : '1.0-0' : 'es-CO' }}</p>
+      <form [formGroup]="rejectForm" (ngSubmit)="confirmReject()">
+        <label for="reason">Motivo del rechazo *</label>
+        <textarea
+          id="reason"
+          formControlName="reason"
+          rows="4"
+          placeholder="Explique el motivo del rechazo…"
+        ></textarea>
+        @if (reasonCtrl.invalid && (reasonCtrl.dirty || reasonCtrl.touched)) {
+          <div class="field-error">El motivo es obligatorio (mínimo 3 caracteres).</div>
+        }
+        @if (rejectServerError()) {
+          <div class="field-error server">{{ rejectServerError() }}</div>
+        }
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" (click)="closeReject()" [disabled]="rejecting()">
+            Cancelar
+          </button>
+          <button type="submit" class="btn btn-reject" [disabled]="rejecting() || reasonCtrl.invalid">
+            {{ rejecting() ? 'Enviando…' : 'Rechazar' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
+@if (toast(); as message) {
+  <div class="toast">{{ message }}</div>
+}
