@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
-import 'config/api_config.dart';
 import 'screens/create_reimbursement_screen.dart';
 import 'screens/my_reimbursements_screen.dart';
 import 'services/reimbursement_api_service.dart';
@@ -18,7 +17,11 @@ Future<void> main() async {
 }
 
 class ConswareReimbursementsApp extends StatelessWidget {
-  const ConswareReimbursementsApp({super.key});
+  /// Opcional para pruebas de widgets: permite inyectar un servicio con
+  /// un cliente HTTP falso (sin red real). En producción es null.
+  final ReimbursementApiService? apiService;
+
+  const ConswareReimbursementsApp({super.key, this.apiService});
 
   @override
   Widget build(BuildContext context) {
@@ -29,30 +32,49 @@ class ConswareReimbursementsApp extends StatelessWidget {
         colorSchemeSeed: Colors.teal,
         useMaterial3: true,
       ),
-      home: const HomeShell(),
+      home: HomeShell(apiService: apiService),
     );
   }
 }
 
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key});
+  /// Opcional para pruebas de widgets: servicio con HTTP falso.
+  /// Si es null se crea uno real.
+  final ReimbursementApiService? apiService;
+
+  const HomeShell({super.key, this.apiService});
 
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
 
 class _HomeShellState extends State<HomeShell> {
-  final ReimbursementApiService _apiService = ReimbursementApiService();
+  late final ReimbursementApiService _apiService;
   int _selectedIndex = 0;
+
+  /// Se incrementa cada vez que se entra a "Mis solicitudes"; el listado
+  /// escucha el cambio (didUpdateWidget) y repite el GET automáticamente
+  /// (p. ej. tras un POST exitoso que cambia a esa pestaña).
+  int _listRefreshVersion = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiService = widget.apiService ?? ReimbursementApiService();
+  }
 
   @override
   void dispose() {
-    _apiService.dispose();
+    // El servicio inyectado lo administra quien lo creó (las pruebas).
+    if (widget.apiService == null) _apiService.dispose();
     super.dispose();
   }
 
   void _onTabTapped(int index) {
-    setState(() => _selectedIndex = index);
+    setState(() {
+      _selectedIndex = index;
+      if (index == 1) _listRefreshVersion++;
+    });
   }
 
   @override
@@ -66,6 +88,7 @@ class _HomeShellState extends State<HomeShell> {
       MyReimbursementsScreen(
         apiService: _apiService,
         employeeName: kEmployeeName,
+        refreshVersion: _listRefreshVersion,
       ),
     ];
     return Scaffold(

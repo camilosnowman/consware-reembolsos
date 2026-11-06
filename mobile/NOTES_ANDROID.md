@@ -1,30 +1,36 @@
-NOTAS ANDROID — permisos y tráfico en texto claro (cleartext)
-============================================================
+NOTAS ANDROID — permisos y tráfico HTTP
+=======================================
 
-El scaffold `android/` NO está incluido aún. Cuando se ejecute
-`flutter create .` dentro de `mobile/` (o `flutter create mobile` desde
-la raíz del repo) se generará. Entonces hay que editar:
+Estado del scaffold `android/`
+------------------------------
+El scaffold Android YA está incluido y versionado en el repo
+(`mobile/android/`, generado con `flutter create .` desde `mobile/`).
+No hay que volver a generarlo.
 
-    android/app/src/main/AndroidManifest.xml
-
-1) Agregar el permiso de INTERNET justo antes de <application>:
+Permisos
+--------
+`android/app/src/main/AndroidManifest.xml` declara, justo antes de
+`<application>`:
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-2) Dentro de la etiqueta <application>, permitir tráfico HTTP en claro
-   (necesario porque la API corre en http:// y no en https://):
+Los manifest de `debug/` y `profile/` también lo incluyen (la plantilla
+de Flutter lo agrega para hot reload). Con esto el permiso queda
+cubierto en todos los tipos de build, incluido release.
 
-    <application
-        android:name="${applicationName}"
-        android:label="consware_reimbursements"
-        android:usesCleartextTraffic="true"
-        ... >
+Tráfico HTTP en claro (cleartext)
+---------------------------------
+La API local corre en `http://` (`http://10.0.2.2:5000` desde el
+emulador; la IP LAN del PC desde un dispositivo físico).
 
-Qué  y por qué
---------------
-- INTERNET: sin él `http` falla con SocketException en release.
-- usesCleartextTraffic: en Android 9+ el http en claro viene bloqueado
-  por defecto; la API local (http://10.0.2.2:5000 o la IP LAN del PC)
-  no usa TLS, así que lo habilitamos.
-- Solo para desarrollo. En producción habría que usar HTTPS o una
-  network security config más restrictiva.
+NO se agregó `android:usesCleartextTraffic="true"` ni ninguna otra
+configuración global insegura: no hay que asumir que el HTTP a la API
+falla solo porque esa bandera no esté presente.
+
+Si en algún build concreto se llegara a observar bloqueo del tráfico en
+claro (en Android 9+ con targetSdk 28+ viene deshabilitado por defecto),
+la corrección puntual es una *network security config* restringida a los
+hosts de desarrollo (`10.0.2.2` y la IP LAN del PC), definida en
+`android/app/src/main/res/xml/network_security_config.xml` y referenciada
+desde el `<application>` del manifest. En producción lo correcto es
+servir la API por HTTPS.

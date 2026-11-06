@@ -19,7 +19,15 @@ class ApiException implements Exception {
 /// Servicio encargado de toda la comunicación HTTP con la API
 /// de reembolsos para el flujo del EMPLEADO.
 class ReimbursementApiService {
-  final http.Client _client = http.Client();
+  final http.Client _client;
+  final bool _ownsClient;
+
+  /// Permite inyectar un [http.Client] falso (p. ej. MockClient de
+  /// package:http/testing.dart) en pruebas de widgets, sin red real.
+  /// Si no se inyecta, crea y administra su propio cliente.
+  ReimbursementApiService({http.Client? client})
+      : _client = client ?? http.Client(),
+        _ownsClient = client == null;
 
   Map<String, String> get _headers => const {
         'Content-Type': 'application/json; charset=utf-8',
@@ -131,6 +139,9 @@ class ReimbursementApiService {
   }
 
   void dispose() {
-    _client.close();
+    // Solo cierra el cliente si lo creó este servicio.
+    if (_ownsClient) {
+      _client.close();
+    }
   }
 }

@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Permiso para consumir la API de reembolsos por HTTP.
+         Obligatorio en builds release; en debug/profile Flutter ya lo agrega. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="consware_reimbursements"
         android:name="${applicationName}"

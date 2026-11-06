@@ -1,4 +1,6 @@
 /// Configuración de la API.
+library;
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 class ApiConfig {
