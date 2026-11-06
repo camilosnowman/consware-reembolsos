@@ -143,10 +143,12 @@ npm run build
 
 Los resultados ejecutados y los límites de verificación de la entrega se registran en `CHECKLIST_ENTREGA.md`. Una compilación o una prueba con servicio simulado no sustituye una ejecución en un dispositivo Android.
 
+En la revisión del 6 de noviembre de 2026 se aprobaron **28/28 casos HTTP contra SQL Server**, **18/18 pruebas Flutter** y **16/16 pruebas Angular**. También se compilaron los tres proyectos y el APK Android, y se comprobó con Playwright el recorrido de crear en Flutter web, decidir desde Angular y consultar el resultado y el motivo en Flutter. Los detalles del entorno y la persistencia tras reiniciar la API están en el checklist.
+
 ## 12. Paquete de entrega
 
 Desde la raíz, ejecute `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\empaquetar.ps1`. El ZIP conserva la carpeta raíz `consware-reembolsos/` e incluye los archivos versionados permitidos. Excluye configuraciones privadas, archivos de IDE, resultados de compilación y material personal de estudio.
 
 ## 13. Uso de IA
 
-Se usaron asistentes de IA —Codex CLI y agentes de código opencode— para estructurar el proyecto, generar código base y revisar escenarios de prueba. El candidato verificó el funcionamiento y puede explicar y modificar cada archivo.
+Se usaron asistentes de IA —Codex y agentes de código OpenCode— para estructurar el proyecto, generar código base, revisar escenarios y corregir errores. Las comprobaciones ejecutadas y sus límites están documentados en `CHECKLIST_ENTREGA.md`.
