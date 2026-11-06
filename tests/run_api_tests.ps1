@@ -120,13 +120,16 @@ Test-Case 'T08' 404 { Invoke-Api Get "$api/999999" } | Out-Null
 Test-Case 'T09' 200 { Invoke-Api Get ($api + '?status=Pending') } {
     param($r)
     $items = @(Convert-ApiJson $r.Content)
-    $ok = $items.Count -gt 0 -and @($items | Where-Object { $_.status -ne 'Pending' }).Count -eq 0
+    $ok = ($items.Count -gt 0) -and (@($items | Where-Object { $_.status -ne 'Pending' }).Count -eq 0)
     return @($ok, 'solo registros Pending')
 } | Out-Null
 Test-Case 'T10' 200 { Invoke-Api Get ($api + '?employeeName=' + [uri]::EscapeDataString($demoEmployee)) } {
-    param($r)
-    $items = @(Convert-ApiJson $r.Content)
-    return @($items.Count -gt 0 -and @($items | Where-Object { $_.employeeName -ne $demoEmployee }).Count -eq 0, "solo $demoEmployee")
+param($r)
+[System.IO.File]::WriteAllText("$env:TEMP\opencode\t10_debug.json", $r.Content)
+$items = @(Convert-ApiJson $r.Content)
+$mis = @($items | Where-Object { $_.employeeName -ne $demoEmployee }).Count
+$ok = ($items.Count -gt 0) -and ($mis -eq 0)
+return @($ok, "solo $demoEmployee (items=$($items.Count) mismatches=$mis)")
 } | Out-Null
 Test-Case 'T11' 200 { Invoke-Api Get ($api + '?status=Pending&employeeName=' + [uri]::EscapeDataString($pendingEmployee)) } {
     param($r)
