@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 
 import 'config/api_config.dart';
 import 'screens/create_reimbursement_screen.dart';
@@ -8,7 +10,10 @@ import 'services/reimbursement_api_service.dart';
 /// Nombre del empleado autenticado. En una app real vendría de un login.
 const String kEmployeeName = 'Empleado Demo';
 
-void main() {
+Future<void> main() async {
+  // Carga los patrones de números/fechas del locale es_CO para intl.
+  await initializeDateFormatting('es_CO');
+  Intl.defaultLocale = 'es_CO';
   runApp(const ConswareReimbursementsApp());
 }
 
