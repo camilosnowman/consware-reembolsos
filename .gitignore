@@ -1,0 +1,17 @@
+# .NET
+**/bin/
+**/obj/
+
+# Flutter
+mobile/.dart_tool/
+mobile/build/
+
+# Angular
+web/node_modules/
+web/dist/
+web/.angular/
+
+# Editor y secretos
+.vscode/
+.idea/
+.env
