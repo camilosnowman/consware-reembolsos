@@ -1,10 +1,15 @@
+import { registerLocaleData } from '@angular/common';
+import localeEsCo from '@angular/common/locales/es-CO';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { LOCALE_ID } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Reimbursement } from '../../models/reimbursement.model';
 import { ApprovalsComponent } from './approvals.component';
 
 const BASE_URL = 'http://localhost:5000/api/reimbursements';
+
+registerLocaleData(localeEsCo);
 
 describe('ApprovalsComponent', () => {
   let fixture: ComponentFixture<ApprovalsComponent>;
@@ -57,7 +62,11 @@ describe('ApprovalsComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [ApprovalsComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: LOCALE_ID, useValue: 'es-CO' },
+      ],
     }).compileComponents();
 
     httpMock = TestBed.inject(HttpTestingController);
@@ -84,6 +93,18 @@ describe('ApprovalsComponent', () => {
     expect(rows[0].textContent).toContain('Ana Torres');
     expect(rows[0].textContent).toContain('Aprobar');
     expect(rows[1].textContent).toContain('Luis Gómez');
+  });
+
+  it('muestra los centavos sin redondear una pendiente al limite de autoaprobacion', () => {
+    const req = httpMock.expectOne(
+      (r) => r.method === 'GET' && r.url === BASE_URL && r.params.get('status') === 'Pending',
+    );
+    req.flush([{ ...pendingItem, amount: 500000.01 }]);
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('td.num')?.textContent).toContain('500.000,01');
+    openRejectModal();
+    expect(compiled.querySelector('.modal p')?.textContent).toContain('500.000,01');
   });
 
   it('al cambiar el filtro a Todas pide la lista completa sin el parámetro status', () => {
