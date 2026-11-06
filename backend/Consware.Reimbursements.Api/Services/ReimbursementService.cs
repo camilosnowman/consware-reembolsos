@@ -7,8 +7,6 @@ namespace Consware.Reimbursements.Api.Services;
 
 public class ReimbursementService : IReimbursementService
 {
-    private const decimal AutoApprovalLimit = 500000m;
-
     private readonly AppDbContext _context;
 
     public ReimbursementService(AppDbContext context)
@@ -18,7 +16,7 @@ public class ReimbursementService : IReimbursementService
 
     public async Task<ServiceResult<ReimbursementResponseDto>> CreateAsync(CreateReimbursementDto dto)
     {
-        if (dto.EmployeeName is null || string.IsNullOrWhiteSpace(dto.EmployeeName))
+        if (string.IsNullOrWhiteSpace(dto.EmployeeName))
         {
             return ServiceResult<ReimbursementResponseDto>.Fail(ServiceErrorCode.BadRequest, "El nombre del empleado es obligatorio.");
         }
@@ -33,10 +31,31 @@ public class ReimbursementService : IReimbursementService
             return ServiceResult<ReimbursementResponseDto>.Fail(ServiceErrorCode.BadRequest, "La descripci\u00f3n es obligatoria.");
         }
 
-        if (dto.Amount <= 0)
+        // Longitudes validadas tras Trim: el exceso se rechaza con 400, no con 500 por SQL.
+        if (!ReimbursementValidation.FitsLengthAfterTrim(dto.EmployeeName, ReimbursementValidation.EmployeeNameMaxLength))
         {
-            return ServiceResult<ReimbursementResponseDto>.Fail(ServiceErrorCode.BadRequest, "El monto debe ser mayor que cero.");
+            return ServiceResult<ReimbursementResponseDto>.Fail(ServiceErrorCode.BadRequest, $"El nombre del empleado no puede superar {ReimbursementValidation.EmployeeNameMaxLength} caracteres.");
         }
+
+        if (!ReimbursementValidation.FitsLengthAfterTrim(dto.Category, ReimbursementValidation.CategoryMaxLength))
+        {
+            return ServiceResult<ReimbursementResponseDto>.Fail(ServiceErrorCode.BadRequest, $"La categor\u00eda no puede superar {ReimbursementValidation.CategoryMaxLength} caracteres.");
+        }
+
+        if (!ReimbursementValidation.FitsLengthAfterTrim(dto.Description, ReimbursementValidation.DescriptionMaxLength))
+        {
+            return ServiceResult<ReimbursementResponseDto>.Fail(ServiceErrorCode.BadRequest, $"La descripci\u00f3n no puede superar {ReimbursementValidation.DescriptionMaxLength} caracteres.");
+        }
+
+        // El monto se valida antes de decidir el estado y de persistir: ni redondeo silencioso ni error de SQL.
+        var amountError = ReimbursementValidation.ValidateAmount(dto.Amount);
+        if (amountError is not null)
+        {
+            return ServiceResult<ReimbursementResponseDto>.Fail(ServiceErrorCode.BadRequest, amountError);
+        }
+
+        var autoApproved = ReimbursementValidation.IsAutoApproved(dto.Amount);
+        var createdAtUtc = DateTime.UtcNow;
 
         var entity = new ReimbursementRequest
         {
@@ -44,9 +63,9 @@ public class ReimbursementService : IReimbursementService
             Amount = dto.Amount,
             Category = dto.Category.Trim(),
             Description = dto.Description.Trim(),
-            Status = dto.Amount <= AutoApprovalLimit ? ReimbursementStatus.Approved : ReimbursementStatus.Pending,
-            CreatedAtUtc = DateTime.UtcNow,
-            DecidedAtUtc = dto.Amount <= AutoApprovalLimit ? DateTime.UtcNow : null
+            Status = autoApproved ? ReimbursementStatus.Approved : ReimbursementStatus.Pending,
+            CreatedAtUtc = createdAtUtc,
+            DecidedAtUtc = autoApproved ? createdAtUtc : null
         };
 
         _context.ReimbursementRequests.Add(entity);
@@ -55,14 +74,26 @@ public class ReimbursementService : IReimbursementService
         return ServiceResult<ReimbursementResponseDto>.Ok(ToDto(entity));
     }
 
-    public async Task<IEnumerable<ReimbursementResponseDto>> GetAllAsync(string? status, string? employeeName)
+    public async Task<ServiceResult<IEnumerable<ReimbursementResponseDto>>> GetAllAsync(string? status, string? employeeName)
     {
-        var query = _context.ReimbursementRequests.AsQueryable();
+        ReimbursementStatus? statusFilter = null;
 
+        // Estados no definidos (texto inv\u00e1lido o num\u00e9ricos como 999) se rechazan con 400.
         if (!string.IsNullOrWhiteSpace(status))
         {
-            var parsedStatus = Enum.Parse<ReimbursementStatus>(status, ignoreCase: true);
-            query = query.Where(r => r.Status == parsedStatus);
+            if (!ReimbursementValidation.TryParseStatus(status, out var parsedStatus))
+            {
+                return ServiceResult<IEnumerable<ReimbursementResponseDto>>.Fail(ServiceErrorCode.BadRequest, "El estado proporcionado no es v\u00e1lido.");
+            }
+
+            statusFilter = parsedStatus;
+        }
+
+        var query = _context.ReimbursementRequests.AsNoTracking();
+
+        if (statusFilter.HasValue)
+        {
+            query = query.Where(r => r.Status == statusFilter.Value);
         }
 
         if (!string.IsNullOrWhiteSpace(employeeName))
@@ -74,12 +105,14 @@ public class ReimbursementService : IReimbursementService
             .OrderByDescending(r => r.CreatedAtUtc)
             .ToListAsync();
 
-        return list.Select(ToDto);
+        return ServiceResult<IEnumerable<ReimbursementResponseDto>>.Ok(list.Select(ToDto));
     }
 
     public async Task<ServiceResult<ReimbursementResponseDto>> GetByIdAsync(int id)
     {
-        var entity = await _context.ReimbursementRequests.FindAsync(id);
+        var entity = await _context.ReimbursementRequests
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == id);
 
         if (entity is null)
         {
@@ -117,6 +150,11 @@ public class ReimbursementService : IReimbursementService
             return ServiceResult<ReimbursementResponseDto>.Fail(ServiceErrorCode.BadRequest, "Debe indicar el motivo del rechazo.");
         }
 
+        if (!ReimbursementValidation.FitsLengthAfterTrim(reason, ReimbursementValidation.RejectionReasonMaxLength))
+        {
+            return ServiceResult<ReimbursementResponseDto>.Fail(ServiceErrorCode.BadRequest, $"El motivo del rechazo no puede superar {ReimbursementValidation.RejectionReasonMaxLength} caracteres.");
+        }
+
         var entity = await _context.ReimbursementRequests.FindAsync(id);
 
         if (entity is null)
@@ -146,6 +184,8 @@ public class ReimbursementService : IReimbursementService
             entity.Description,
             entity.Status.ToString(),
             entity.RejectionReason,
-            entity.CreatedAtUtc,
-            entity.DecidedAtUtc);
+            // datetime2 pierde el Kind al leer de SQL; se re-etiqueta como UTC para
+            // que la serializaci\u00f3n incluya el sufijo Z en CreatedAtUtc y DecidedAtUtc.
+            ReimbursementValidation.AsUtc(entity.CreatedAtUtc),
+            ReimbursementValidation.AsUtc(entity.DecidedAtUtc));
 }
