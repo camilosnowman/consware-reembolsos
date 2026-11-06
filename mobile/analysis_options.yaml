@@ -1,4 +1,9 @@
 # Análisis estático con la reglas por defecto de Flutter.
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - web/**
 include: package:flutter_lints/flutter.yaml
 
 linter:
