@@ -175,8 +175,30 @@ try {
     }
 
     # 4) ZIP con la misma estructura raiz que la version original:
-    #    carpeta consware-reembolsos/ en la raiz del archivo.
-    Compress-Archive -Path $stagingRoot -DestinationPath $archivePath -CompressionLevel Optimal -Force
+    #    carpeta consware-reembolsos/ en la raiz del archivo. Se crea entrada a
+    #    entrada con separador '/' (el estandar ZIP) porque Compress-Archive de
+    #    Windows PowerShell 5.1 guarda '\' y el paquete no seria portable.
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+    if (Test-Path -LiteralPath $archivePath) {
+        Remove-Item -LiteralPath $archivePath -Force
+    }
+
+    $zip = [System.IO.Compression.ZipFile]::Open(
+        $archivePath,
+        [System.IO.Compression.ZipArchiveMode]::Create
+    )
+    try {
+        foreach ($relative in $included) {
+            $source = Join-Path $stagingRoot ($relative -replace '/', '\')
+            $entryName = 'consware-reembolsos/' + ($relative -replace '\\', '/')
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $zip, $source, $entryName, [System.IO.Compression.CompressionLevel]::Optimal
+            ) | Out-Null
+        }
+    }
+    finally {
+        $zip.Dispose()
+    }
 
     $size = (Get-Item -LiteralPath $archivePath).Length
     $sizeMiB = [Math]::Round($size / 1MB, 2)

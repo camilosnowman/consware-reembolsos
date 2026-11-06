@@ -69,6 +69,7 @@ describe('ApprovalsComponent', () => {
 
   afterEach(() => {
     httpMock.verify();
+    vi.restoreAllMocks();
   });
 
   it('carga por defecto con el filtro Pending y muestra la lista devuelta', () => {
@@ -188,5 +189,140 @@ describe('ApprovalsComponent', () => {
 
     expect(compiled.querySelector('.modal')).toBeNull();
     expect(compiled.querySelector('.toast')?.textContent).toContain('ya fue decidida');
+  });
+
+  it('aprueba una solicitud confirmada, avisa y recarga la lista', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    expectPendingLoad();
+    fixture.detectChanges();
+
+    compiled.querySelector<HTMLButtonElement>('button.btn-approve')!.click();
+
+    const req = httpMock.expectOne(
+      (r) => r.method === 'PATCH' && r.url === `${BASE_URL}/${pendingItem.id}/approve`,
+    );
+    expect(req.request.body).toEqual({});
+    req.flush(null);
+
+    const reload = httpMock.expectOne(
+      (r) => r.method === 'GET' && r.url === BASE_URL && r.params.get('status') === 'Pending',
+    );
+    reload.flush([]);
+    fixture.detectChanges();
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(compiled.querySelector('.toast')?.textContent).toContain('Solicitud aprobada');
+  });
+
+  it('no aprueba si se cancela la confirmación del navegador', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    expectPendingLoad();
+    fixture.detectChanges();
+
+    compiled.querySelector<HTMLButtonElement>('button.btn-approve')!.click();
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(httpMock.match((r) => r.method === 'PATCH')).toEqual([]);
+  });
+
+  it('ante un conflicto 409 al aprobar avisa y recarga la lista', () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    expectPendingLoad();
+    fixture.detectChanges();
+
+    compiled.querySelector<HTMLButtonElement>('button.btn-approve')!.click();
+
+    const req = httpMock.expectOne(
+      (r) => r.method === 'PATCH' && r.url === `${BASE_URL}/${pendingItem.id}/approve`,
+    );
+    req.flush({ message: 'La solicitud ya fue decidida.' }, { status: 409, statusText: 'Conflict' });
+
+    const reload = httpMock.expectOne(
+      (r) => r.method === 'GET' && r.url === BASE_URL && r.params.get('status') === 'Pending',
+    );
+    reload.flush([]);
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('.toast')?.textContent).toContain('ya fue decidida');
+  });
+
+  it('ante un 400 al rechazar mantiene el modal y muestra el error del servidor', () => {
+    expectPendingLoad();
+    fixture.detectChanges();
+    openRejectModal();
+
+    setReason('Motivo válido');
+    getSubmitButton().click();
+
+    const req = httpMock.expectOne(
+      (r) => r.method === 'PATCH' && r.url === `${BASE_URL}/${pendingItem.id}/reject`,
+    );
+    req.flush({ message: 'Solicitud inválida' }, { status: 400, statusText: 'Bad Request' });
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('.modal')).toBeTruthy();
+    expect(compiled.querySelector('.field-error.server')?.textContent).toContain('400');
+    expect(getSubmitButton().disabled).toBe(false);
+    expect(httpMock.match((r) => r.method === 'GET' && r.params.get('status') === 'Pending')).toEqual(
+      [],
+    );
+  });
+
+  it('cancelar el modal de rechazo no envía ninguna petición', () => {
+    expectPendingLoad();
+    fixture.detectChanges();
+    openRejectModal();
+
+    compiled
+      .querySelector<HTMLButtonElement>('.modal-actions button[type="button"]')!
+      .click();
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('.modal')).toBeNull();
+    expect(httpMock.match((r) => r.method === 'PATCH')).toEqual([]);
+  });
+
+  it('muestra el banner de error si falla la carga y permite reintentar', () => {
+    const failed = httpMock.expectOne(
+      (r) => r.method === 'GET' && r.url === BASE_URL && r.params.get('status') === 'Pending',
+    );
+    failed.flush('boom', { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('.error-banner')?.textContent).toContain(
+      'No se pudo conectar',
+    );
+
+    compiled.querySelector<HTMLButtonElement>('.error-banner button')!.click();
+    const retry = httpMock.expectOne(
+      (r) => r.method === 'GET' && r.url === BASE_URL && r.params.get('status') === 'Pending',
+    );
+    retry.flush([]);
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('.error-banner')).toBeNull();
+    expect(compiled.querySelector('.empty')?.textContent).toContain('No hay solicitudes');
+  });
+
+  it('muestra el motivo y el estado de las solicitudes rechazadas', () => {
+    const rejectedItem: Reimbursement = {
+      ...pendingItem,
+      id: 9,
+      employeeName: 'Marta Ruiz',
+      status: 'Rejected',
+      rejectionReason: 'Falta el soporte de pago',
+      decidedAtUtc: '2026-11-05T13:00:00Z',
+    };
+    const req = httpMock.expectOne(
+      (r) => r.method === 'GET' && r.url === BASE_URL && r.params.get('status') === 'Pending',
+    );
+    req.flush([rejectedItem]);
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('.badge.rejected')?.textContent).toContain('Rechazada');
+    expect(compiled.querySelector('.reject-reason')?.textContent).toContain(
+      'Falta el soporte de pago',
+    );
+    expect(compiled.querySelector('button.btn-approve')).toBeNull();
   });
 });

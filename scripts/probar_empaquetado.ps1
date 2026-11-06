@@ -121,22 +121,44 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $ZipPath).Path)
 try {
-    $entryNames = @($zip.Entries | ForEach-Object { ($_.FullName -replace '\\', '/').TrimEnd('/') } | Where-Object { $_ -ne '' })
+    $rawEntries = @($zip.Entries | ForEach-Object { $_.FullName } | Where-Object { $_ -ne '' })
 }
 finally {
     $zip.Dispose()
 }
 
+$entryNames = @($rawEntries | ForEach-Object { ($_ -replace '\\', '/').TrimEnd('/') } | Where-Object { $_ -ne '' })
+$fileEntries = @{}
+foreach ($rawName in $rawEntries) {
+    if ($rawName.EndsWith('/') -or $rawName.EndsWith('\')) {
+        continue
+    }
+    $fileEntries[($rawName -replace '\\', '/')] = $true
+}
+
 # 1) Estructura: raiz consware-reembolsos/ y nada fuera de ella.
 $checks++
-$outsideRoot = @($entryNames | Where-Object { $_ -notlike 'consware-reembolsos/*' })
+$outsideRoot = @($rawEntries | Where-Object {
+    $_ -ne 'consware-reembolsos' -and
+    $_ -ne 'consware-reembolsos/' -and
+    -not $_.StartsWith('consware-reembolsos/')
+})
 if ($outsideRoot.Count -gt 0) {
     foreach ($name in $outsideRoot) {
         Add-Failure ("ENTRADA FUERA DE LA RAIZ consware-reembolsos/: {0}" -f $name)
     }
 }
 
-# 2) Sin entradas prohibidas (secretos, guias de estudio, IDE, configs
+# 2) Separador estandar '/' en todas las entradas (ZIP portable).
+$checks++
+$backslashEntries = @($rawEntries | Where-Object { $_ -match '\\' })
+if ($backslashEntries.Count -gt 0) {
+    foreach ($name in $backslashEntries) {
+        Add-Failure ("ENTRADA CON SEPARADOR '\\' EN LUGAR DE '/': {0}" -f $name)
+    }
+}
+
+# 3) Sin entradas prohibidas (secretos, guias de estudio, IDE, configs
 #    privadas, carpetas generadas/build, ficheros ignorados por regla).
 $checks++
 $forbidden = @($entryNames | Where-Object { Test-ForbiddenEntryName $_ })
@@ -146,15 +168,11 @@ if ($forbidden.Count -gt 0) {
     }
 }
 
-# 3) Completitud: todos los fuentes versionados permitidos estan dentro.
+# 4) Completitud: todos los fuentes versionados permitidos estan dentro.
 $checks++
-$entrySet = @{}
-foreach ($name in $entryNames) {
-    $entrySet[$name] = $true
-}
 $missing = @()
 foreach ($expected in $expectedEntries.Keys) {
-    if (-not $entrySet.ContainsKey($expected)) {
+    if (-not $fileEntries.ContainsKey($expected)) {
         $missing += $expectedEntries[$expected]
     }
 }
@@ -164,15 +182,25 @@ if ($missing.Count -gt 0) {
     }
 }
 
-# 4) La plantilla de configuracion SIN secretos SI viaja en el paquete
+# 5) Sin ficheros de mas: el paquete contiene SOLO ficheros versionados que
+#    superaron las exclusiones (no arrastra ignorados ni locales).
+$checks++
+$unexpected = @($fileEntries.Keys | Where-Object { -not $expectedEntries.ContainsKey($_) })
+if ($unexpected.Count -gt 0) {
+    foreach ($name in $unexpected) {
+        Add-Failure ("FICHERO NO VERSIONADO O NO PERMITIDO EN EL PAQUETE: {0}" -f $name)
+    }
+}
+
+# 6) La plantilla de configuracion SIN secretos SI viaja en el paquete
 #    (protege contra exclusiones demasiado agresivas).
 $checks++
 $exampleConfig = 'consware-reembolsos/backend/Consware.Reimbursements.Api/appsettings.Development.example.json'
-if (-not $entrySet.ContainsKey($exampleConfig)) {
+if (-not $fileEntries.ContainsKey($exampleConfig)) {
     Add-Failure ("DEBE INCLUIR LA PLANTILLA SIN SECRETOS: {0}" -f $exampleConfig)
 }
 
-# 5) Sin .git dentro del ZIP (equivale a no comprimir el historial).
+# 7) Sin .git dentro del ZIP (equivale a no comprimir el historial).
 $checks++
 if (@($entryNames | Where-Object { $_ -match '(^|/)\.git(/|$)' }).Count -gt 0) {
     Add-Failure 'EL PAQUETE CONTIENE .git'
@@ -181,7 +209,7 @@ if (@($entryNames | Where-Object { $_ -match '(^|/)\.git(/|$)' }).Count -gt 0) {
 # --------------------------------------------------------------------- resumen
 
 Write-Host ''
-Write-Host ("Entradas del ZIP: {0}" -f $entryNames.Count)
+Write-Host ("Entradas del ZIP: {0} ({1} ficheros)" -f $entryNames.Count, $fileEntries.Count)
 Write-Host ("Fuentes versionados permitidos esperados: {0}" -f $expectedEntries.Count)
 Write-Host ("Comprobaciones ejecutadas: {0}" -f $checks)
 Write-Host ''
