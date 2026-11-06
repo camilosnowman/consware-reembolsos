@@ -16,3 +16,8 @@ web/.angular/
 .idea/
 .env
 appsettings.Development.json
+
+# Material personal de estudio y paquetes de entrega
+/GUIA_ENTREVISTA.md
+/Consware_Guia_Tecnica*.pdf
+/consware-reembolsos.zip
