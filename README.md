@@ -19,7 +19,7 @@ El proyecto se organiza en tres clientes/servicios: API en `backend/`, aplicaci�
 - SQL Server disponible localmente o en red, con permisos para crear/actualizar la base de datos.
 - Herramienta de EF Core: `dotnet tool install --global dotnet-ef --version 8.0.11` (si aún no está instalada; alinee la versión con los paquetes EF 8.x del proyecto).
 - Flutter SDK y un emulador Android o dispositivo físico, para el cliente móvil.
-- Node.js y npm, para el cliente web.
+- Node.js `^22.22.3`, `^24.15.0` o `>=26.0.0` y npm, para el cliente web (requisitos de Angular 22).
 
 ## 4. Configuración de SQL Server
 
@@ -69,7 +69,7 @@ flutter run
 Desde `web/` ejecute:
 
 ```bash
-npm install
+npm ci
 npm start
 ```
 
@@ -94,6 +94,8 @@ Reglas implementadas:
 - El rechazo requiere un motivo no vacío.
 - `Approved` y `Rejected` son estados finales: no pueden aprobarse ni rechazarse nuevamente.
 - Se valida que nombre del empleado, categoría y descripción sean obligatorios, y que el monto sea mayor que cero.
+- El monto admite hasta dos decimales y un máximo de `9999999999999999.99` COP. Se rechaza la precisión adicional con `400`, en lugar de redondear antes de guardarlo.
+- Después de quitar espacios al inicio y al final, el nombre admite 100 caracteres; la categoría 60; la descripción y el motivo de rechazo 500 cada uno.
 - La API utiliza `400` para datos inválidos, `404` para solicitudes inexistentes y `409` para intentos de modificar una solicitud que ya tiene decisión final.
 
 ## 9. Decisiones técnicas
@@ -101,16 +103,50 @@ Reglas implementadas:
 - La API usa controladores ASP.NET Core y DTOs para separar el contrato HTTP de las entidades de persistencia.
 - La lógica de negocio está encapsulada en `ReimbursementService`; el controlador se limita a traducir resultados a respuestas HTTP.
 - EF Core con el proveedor de SQL Server persiste las solicitudes y cuenta con una migración inicial.
-- Las fechas se almacenan en UTC (`CreatedAtUtc` y `DecidedAtUtc`).
+- Las fechas se almacenan en UTC (`CreatedAtUtc` y `DecidedAtUtc`) y las respuestas JSON indican UTC con el sufijo `Z`, también al consultar registros ya guardados.
 - El listado se ordena por fecha de creación descendente y admite filtrado por estado y coincidencia en el nombre de empleado.
-- CORS se restringe al origen local del cliente Angular durante desarrollo.
+- CORS permite los orígenes locales documentados de Angular y Flutter web durante desarrollo.
 
 ## 10. Fuera de alcance por tiempo
 
 El MVP no incluye autenticación ni autorización por roles, adjuntos/soportes de gasto, notificaciones, auditoría detallada, paginación, pruebas automatizadas completas, ni despliegue productivo.
 
-En una siguiente iteración se resolvería con autenticación basada en JWT y roles, almacenamiento de archivos en un servicio de objetos, eventos o colas para notificaciones, trazabilidad de cambios, paginación y pruebas unitarias/de integración, además de configuración por ambientes y CI/CD.
+En una siguiente iteración se resolvería con autenticación basada en JWT y roles, almacenamiento de archivos en un servicio de objetos, eventos o colas para notificaciones, trazabilidad de cambios, paginación y mayor cobertura de pruebas, además de configuración por ambientes y CI/CD.
 
-## 11. Uso de IA
+## 11. Pruebas y compilación
+
+Con SQL Server y la API en ejecución, desde la raíz del repositorio:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\run_api_tests.ps1
+```
+
+Se puede usar otra instancia de la API con `-BaseUrl http://localhost:5098`. La suite crea solicitudes de prueba en la base configurada; imprime los casos y termina con código distinto de cero si alguno falla. Los detalles y casos de borde están en `tests/README.md`.
+
+Comprobaciones independientes de los clientes y del backend, desde sus respectivas carpetas:
+
+```powershell
+# backend/Consware.Reimbursements.Api
+dotnet build -c Release
+
+# mobile
+flutter pub get
+flutter analyze
+flutter test
+flutter build web
+
+# web
+npm ci
+npm test -- --watch=false
+npm run build
+```
+
+Los resultados ejecutados y los límites de verificación de la entrega se registran en `CHECKLIST_ENTREGA.md`. Una compilación o una prueba con servicio simulado no sustituye una ejecución en un dispositivo Android.
+
+## 12. Paquete de entrega
+
+Desde la raíz, ejecute `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\empaquetar.ps1`. El ZIP conserva la carpeta raíz `consware-reembolsos/` e incluye los archivos versionados permitidos. Excluye configuraciones privadas, archivos de IDE, resultados de compilación y material personal de estudio.
+
+## 13. Uso de IA
 
 Se usaron asistentes de IA —Codex CLI y agentes de código opencode— para estructurar el proyecto, generar código base y revisar escenarios de prueba. El candidato verificó el funcionamiento y puede explicar y modificar cada archivo.
